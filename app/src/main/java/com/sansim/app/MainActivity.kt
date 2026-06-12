@@ -1716,7 +1716,10 @@ fun cloudPost(s:App设置,path:String,body:String,lang:String="简体中文",onR
                 if(needsAuth) c.setRequestProperty("X-API-Key",apiKey)
                 c.outputStream.use{it.write(body.toByteArray(Charsets.UTF_8))}
             }
-            c.inputStream.bufferedReader(Charsets.UTF_8).readText()
+            val respCode=c.responseCode
+            val stream=if(respCode in 200..299) c.inputStream else c.errorStream
+            val respBody=stream?.bufferedReader(Charsets.UTF_8)?.readText() ?: ""
+            if(respCode !in 200..299) "HTTP $respCode: $respBody" else respBody
         }.fold({it},{tr(lang,"失败")+": ${it.javaClass.simpleName}: ${it.message}"})
         Handler(Looper.getMainLooper()).post{onResult(!res.startsWith(tr(lang,"失败")),res)}
     }

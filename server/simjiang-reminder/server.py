@@ -22,6 +22,7 @@ def new_key():
 def db():
     conn=sqlite3.connect(DB)
     conn.row_factory=sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("""create table if not exists users(
         api_key text primary key,
         payload text not null,
@@ -73,11 +74,19 @@ def days_left(exp):
 
 def send_tg(token, chat_id, text):
     if not token or not chat_id: return False, 'Telegram 未配置'
-    url='https://api.telegram.org/bot%s/sendMessage'%token
-    data=urllib.parse.urlencode({'chat_id':chat_id,'text':text}).encode()
-    with urllib.request.urlopen(url, data=data, timeout=15) as r:
-        body=r.read().decode('utf-8','ignore')
-    return True, body[:160]
+    try:
+        url='https://api.telegram.org/bot%s/sendMessage'%token
+        data=urllib.parse.urlencode({'chat_id':chat_id,'text':text}).encode()
+        with urllib.request.urlopen(url, data=data, timeout=15) as r:
+            body=r.read().decode('utf-8','ignore')
+        return True, body[:160]
+    except urllib.error.HTTPError as e:
+        err_body=''; 
+        try: err_body=e.read().decode('utf-8','ignore')[:200]
+        except: pass
+        return False, 'Telegram HTTP %d: %s'%(e.code, err_body or e.reason)
+    except Exception as e:
+        return False, 'Telegram 发送失败: %s: %s'%(type(e).__name__, str(e))
 
 def send_mail(cfg, subject, body):
     host=cfg.get('smtpHost',''); port=int(cfg.get('smtpPort') or 465)
@@ -87,11 +96,14 @@ def send_mail(cfg, subject, body):
     msg['Subject']=Header(subject,'utf-8')
     msg['From']=formataddr(('SimJiang', sender))
     msg['To']=to
-    ctx=ssl.create_default_context()
-    with smtplib.SMTP_SSL(host, port, context=ctx, timeout=25) as s:
-        s.login(user,pwd)
-        s.sendmail(sender,[to],msg.as_string())
-    return True, 'OK'
+    try:
+        ctx=ssl.create_default_context()
+        with smtplib.SMTP_SSL(host, port, context=ctx, timeout=25) as s:
+            s.login(user,pwd)
+            s.sendmail(sender,[to],msg.as_string())
+        return True, 'OK'
+    except Exception as e:
+        return False, '邮件发送失败: %s: %s'%(type(e).__name__, str(e))
 
 def reminder_text(r, left):
     op=r.get('operator') or r.get('countryName') or 'SIM'
